@@ -10,10 +10,6 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 near-sdk = "=5.12.0"
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-near-abi = { version = "=0.4.4", features = ["__chunked-entries"] }
-schemars = "=0.8.22"
-
 [profile.release]
 codegen-units = 1
 opt-level = "z"
@@ -21,6 +17,9 @@ lto = true
 debug = false
 panic = "abort"
 overflow-checks = true
+
+[patch.crates-io]
+near-sdk = { git = "https://github.com/00impera/near-sdk-patched", branch = "master" }
 
 [package.metadata.near.reproducible_build]
 image = "sourcescan/cargo-near:0.19.0-rust-1.86.0"
