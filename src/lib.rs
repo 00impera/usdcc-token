@@ -1,3 +1,6 @@
+extern crate near_abi;
+extern crate schemars;
+
 use near_sdk::store::LookupMap;
 use near_sdk::json_types::U128;
 use near_sdk::{
