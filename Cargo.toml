@@ -5,7 +5,7 @@ edition = "2021"
 repository = "https://github.com/00impera/usdcc-token"
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib"]
 
 [dependencies]
 near-sdk = "=5.12.0"
