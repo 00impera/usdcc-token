@@ -351,7 +351,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "702dbca982e748975658812c7be2ca53211f454137486f98f6cf768934e2cb29"
 dependencies = [
  "borsh",
- "schemars",
  "serde",
 ]
 
@@ -362,7 +361,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "559c33c9c86e05da946358485fa6e7e881a09726f909fbd8bcf357f998d7d03d"
 dependencies = [
  "borsh",
- "schemars",
  "serde",
 ]
 
@@ -375,14 +373,12 @@ dependencies = [
  "base64",
  "borsh",
  "bs58",
- "near-abi",
  "near-account-id",
  "near-gas",
  "near-sdk-macros",
  "near-sys",
  "near-token",
  "once_cell",
- "schemars",
  "serde",
  "serde_json",
  "serde_with",
@@ -419,7 +415,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2a8000d5859172ce4cd29d51ae1af18a80571939f2975ffcae2c00d241ef4507"
 dependencies = [
  "borsh",
- "schemars",
  "serde",
 ]
 
@@ -585,7 +580,6 @@ dependencies = [
  "hex",
  "indexmap 1.9.3",
  "indexmap 2.14.0",
- "schemars",
  "serde",
  "serde_derive",
  "serde_json",
