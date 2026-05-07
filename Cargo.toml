@@ -1,0 +1,22 @@
+[package]
+name = "usdcc-token"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+near-sdk = "5.6.0"
+
+[profile.release]
+codegen-units = 1
+opt-level = "z"
+lto = true
+debug = false
+panic = "abort"
+overflow-checks = true
+
+[package.metadata.near.reproducible_build]
+image = "sourcescan/near:0.8.1-rust-1.95.0"
+image_digest = "sha256:..."
