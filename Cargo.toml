@@ -9,6 +9,8 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 near-sdk = "=5.12.0"
+near-abi = "0.4.4"
+schemars = "0.8.22"
 
 [profile.release]
 codegen-units = 1
