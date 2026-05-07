@@ -8,13 +8,9 @@ repository = "https://github.com/00impera/usdcc-token"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-near-sdk = "5.6.0"
-near-abi = { version = "0.4.4", optional = true }
-schemars = { version = "0.8.22", optional = true }
-
-[features]
-default = []
-abi = ["near-abi", "schemars", "near-sdk/abi"]
+near-sdk = "5.26.1"
+near-abi = "0.4.4"
+schemars = "0.8.22"
 
 [profile.release]
 codegen-units = 1
