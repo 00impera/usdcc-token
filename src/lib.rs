@@ -1,213 +1,167 @@
+
 use near_sdk::store::LookupMap;
 use near_sdk::json_types::U128;
 use near_sdk::{
-    env, near_bindgen, AccountId, NearToken, PanicOnDefault, Promise,
-    PromiseOrValue, Gas, BorshStorageKey,
+    env, near, near_bindgen, AccountId, NearToken, PanicOnDefault, Promise,
+    Gas, PromiseOrValue, ext_contract,
 };
-use near_sdk::borsh::{BorshDeserialize, BorshSerialize};
 use near_sdk::serde::{Deserialize, Serialize};
-use near_sdk::serde_json;
 
-const GAS_FOR_FT_TRANSFER_CALL: Gas = Gas::from_tgas(35);
-const GAS_FOR_RESOLVE: Gas = Gas::from_tgas(10);
-
-#[derive(BorshStorageKey, BorshSerialize)]
-enum StorageKey { Accounts, StorageDeposits }
+const GAS_FOR_FT_ON_TRANSFER: Gas = Gas::from_tgas(30);
+const GAS_FOR_RESOLVE: Gas = Gas::from_tgas(5);
 
 #[derive(Serialize, Deserialize)]
 #[serde(crate = "near_sdk::serde")]
 pub struct FungibleTokenMetadata {
-    pub spec: String,
-    pub name: String,
-    pub symbol: String,
-    pub icon: Option<String>,
-    pub reference: Option<String>,
-    pub reference_hash: Option<String>,
-    pub decimals: u8,
+    pub spec: String, pub name: String, pub symbol: String,
+    pub icon: Option<String>, pub reference: Option<String>,
+    pub reference_hash: Option<String>, pub decimals: u8,
 }
 
 #[derive(Serialize, Deserialize)]
 #[serde(crate = "near_sdk::serde")]
-pub struct StorageBalance {
-    pub total: U128,
-    pub available: U128,
+pub struct StorageBalance { pub total: U128, pub available: U128 }
+
+#[ext_contract(ext_ft_receiver)]
+trait FtReceiver {
+    fn ft_on_transfer(&mut self, sender_id: AccountId, amount: U128, msg: String) -> PromiseOrValue<U128>;
 }
 
-#[derive(BorshDeserialize, BorshSerialize)]
-pub struct StoredMetadata {
-    pub name: String,
-    pub symbol: String,
-    pub icon: Option<String>,
-    pub decimals: u8,
+#[ext_contract(ext_self)]
+trait SelfCallback {
+    fn ft_resolve_transfer(&mut self, sender_id: AccountId, receiver_id: AccountId, amount: U128) -> U128;
 }
 
-#[near_bindgen]
-#[derive(BorshDeserialize, BorshSerialize, PanicOnDefault)]
+#[near(contract_state)]
+#[derive(PanicOnDefault)]
 pub struct Contract {
     pub owner_id: AccountId,
     pub total_supply: u128,
-    pub accounts: LookupMap<AccountId, u128>,
-    pub storage_deposits: LookupMap<AccountId, u128>,
-    pub metadata: StoredMetadata,
+    pub balances: LookupMap<AccountId, u128>,
 }
 
 #[near_bindgen]
 impl Contract {
     #[init]
-    pub fn new(owner_id: AccountId, total_supply: U128, name: String, symbol: String, icon: Option<String>, decimals: u8) -> Self {
-        let mut accounts = LookupMap::new(StorageKey::Accounts);
-        accounts.insert(owner_id.clone(), total_supply.0);
-        Self {
-            owner_id,
-            total_supply: total_supply.0,
-            accounts,
-            storage_deposits: LookupMap::new(StorageKey::StorageDeposits),
-            metadata: StoredMetadata { name, symbol, icon, decimals },
-        }
+    pub fn new(owner_id: AccountId, total_supply: U128) -> Self {
+        let mut balances = LookupMap::new(b"b");
+        balances.insert(owner_id.clone(), total_supply.0);
+        Self { owner_id, total_supply: total_supply.0, balances }
     }
 
-    #[init]
-    pub fn new_default_meta(owner_id: AccountId, total_supply: U128) -> Self {
-        Self::new(
-            owner_id,
-            total_supply,
-            "USD Coin Cross-Chain".to_string(),
-            "USDCC".to_string(),
-            Some("https://files.catbox.moe/ujzf30.gif".to_string()),
-            9,
-        )
+    #[init(ignore_state)]
+    pub fn migrate() -> Self {
+        Self {
+            owner_id: env::current_account_id(),
+            total_supply: 0,
+            balances: LookupMap::new(b"b"),
+        }
     }
 
     pub fn ft_metadata(&self) -> FungibleTokenMetadata {
         FungibleTokenMetadata {
             spec: "ft-1.0.0".to_string(),
-            name: self.metadata.name.clone(),
-            symbol: self.metadata.symbol.clone(),
-            icon: self.metadata.icon.clone(),
-            reference: None,
-            reference_hash: None,
-            decimals: self.metadata.decimals,
+            name: "USD Coin Cross-Chain".to_string(),
+            symbol: "USDCC".to_string(),
+            icon: Some("https://files.catbox.moe/ujzf30.gif".to_string()),
+            reference: None, reference_hash: None, decimals: 6,
         }
     }
 
     pub fn ft_total_supply(&self) -> U128 { U128(self.total_supply) }
 
     pub fn ft_balance_of(&self, account_id: AccountId) -> U128 {
-        U128(self.accounts.get(&account_id).copied().unwrap_or(0))
+        U128(*self.balances.get(&account_id).unwrap_or(&0))
     }
 
     #[payable]
     pub fn ft_transfer(&mut self, receiver_id: AccountId, amount: U128, memo: Option<String>) {
-        assert_eq!(env::attached_deposit().as_yoctonear(), 1, "Requires 1 yoctoNEAR");
         let _ = memo;
-        self.internal_transfer(&env::predecessor_account_id(), &receiver_id, amount.0);
+        let sender = env::predecessor_account_id();
+        self.internal_transfer(&sender, &receiver_id, amount.0);
     }
 
     #[payable]
     pub fn ft_transfer_call(&mut self, receiver_id: AccountId, amount: U128, memo: Option<String>, msg: String) -> Promise {
-        assert_eq!(env::attached_deposit().as_yoctonear(), 1, "Requires 1 yoctoNEAR");
         let _ = memo;
-        let sender_id = env::predecessor_account_id();
-        self.internal_transfer(&sender_id, &receiver_id, amount.0);
-        Promise::new(receiver_id.clone())
-            .function_call(
-                "ft_on_transfer".to_string(),
-                serde_json::json!({
-                    "sender_id": sender_id,
-                    "amount": amount,
-                    "msg": msg
-                }).to_string().into_bytes(),
-                NearToken::from_yoctonear(0),
-                GAS_FOR_FT_TRANSFER_CALL,
-            )
+        let sender = env::predecessor_account_id();
+        self.internal_transfer(&sender, &receiver_id, amount.0);
+        ext_ft_receiver::ext(receiver_id.clone())
+            .with_static_gas(GAS_FOR_FT_ON_TRANSFER)
+            .ft_on_transfer(sender.clone(), amount, msg)
             .then(
-                Promise::new(env::current_account_id())
-                    .function_call(
-                        "ft_resolve_transfer".to_string(),
-                        serde_json::json!({
-                            "sender_id": sender_id,
-                            "receiver_id": receiver_id,
-                            "amount": amount
-                        }).to_string().into_bytes(),
-                        NearToken::from_yoctonear(0),
-                        GAS_FOR_RESOLVE,
-                    )
+                ext_self::ext(env::current_account_id())
+                    .with_static_gas(GAS_FOR_RESOLVE)
+                    .ft_resolve_transfer(sender, receiver_id, amount)
             )
     }
 
     #[private]
     pub fn ft_resolve_transfer(&mut self, sender_id: AccountId, receiver_id: AccountId, amount: U128) -> U128 {
-        let unused_amount = match env::promise_result(0) {
+        let unused = match env::promise_result(0) {
             near_sdk::PromiseResult::Successful(value) => {
-                if let Ok(unused) = serde_json::from_slice::<U128>(&value) {
-                    std::cmp::min(amount.0, unused.0)
+                if let Ok(u) = near_sdk::serde_json::from_slice::<U128>(&value) {
+                    std::cmp::min(amount.0, u.0)
                 } else { 0 }
             }
             _ => amount.0,
         };
-        if unused_amount > 0 {
-            let receiver_balance = self.accounts.get(&receiver_id).copied().unwrap_or(0);
-            let refund = std::cmp::min(receiver_balance, unused_amount);
+        if unused > 0 {
+            let rb = *self.balances.get(&receiver_id).unwrap_or(&0);
+            let refund = std::cmp::min(rb, unused);
             if refund > 0 {
-                self.accounts.insert(receiver_id, receiver_balance - refund);
-                let sender_balance = self.accounts.get(&sender_id).copied().unwrap_or(0);
-                self.accounts.insert(sender_id, sender_balance + refund);
+                self.balances.insert(receiver_id, rb - refund);
+                let sb = *self.balances.get(&sender_id).unwrap_or(&0);
+                self.balances.insert(sender_id, sb + refund);
             }
         }
-        U128(amount.0 - unused_amount)
-    }
-
-    pub fn ft_on_transfer(&mut self, sender_id: AccountId, amount: U128, msg: String) -> PromiseOrValue<U128> {
-        let _ = (sender_id, msg);
-        PromiseOrValue::Value(U128(0))
-    }
-
-    #[payable]
-    pub fn storage_deposit(&mut self, account_id: Option<AccountId>) -> StorageBalance {
-        let amount = env::attached_deposit().as_yoctonear();
-        let account = account_id.unwrap_or_else(|| env::predecessor_account_id());
-        let current = self.storage_deposits.get(&account).copied().unwrap_or(0);
-        self.storage_deposits.insert(account.clone(), current + amount);
-        if self.accounts.get(&account).is_none() {
-            self.accounts.insert(account, 0);
-        }
-        StorageBalance { total: U128(current + amount), available: U128(current + amount) }
-    }
-
-    pub fn storage_balance_of(&self, account_id: AccountId) -> Option<StorageBalance> {
-        let total = self.storage_deposits.get(&account_id).copied().unwrap_or(0);
-        Some(StorageBalance { total: U128(total), available: U128(total) })
-    }
-
-    #[payable]
-    pub fn storage_withdraw(&mut self, amount: Option<U128>) -> StorageBalance {
-        assert_eq!(env::attached_deposit().as_yoctonear(), 1, "Requires 1 yoctoNEAR");
-        let account_id = env::predecessor_account_id();
-        let current = self.storage_deposits.get(&account_id).copied().unwrap_or(0);
-        let withdraw = amount.map(|a| a.0).unwrap_or(current);
-        assert!(withdraw <= current, "Not enough storage balance");
-        self.storage_deposits.insert(account_id.clone(), current - withdraw);
-        Promise::new(account_id).transfer(NearToken::from_yoctonear(withdraw));
-        StorageBalance { total: U128(current - withdraw), available: U128(current - withdraw) }
+        U128(amount.0 - unused)
     }
 
     pub fn mint(&mut self, account_id: AccountId, amount: U128) {
         assert_eq!(env::predecessor_account_id(), self.owner_id, "Owner only");
-        let balance = self.accounts.get(&account_id).copied().unwrap_or(0);
-        self.accounts.insert(account_id, balance + amount.0);
+        let bal = *self.balances.get(&account_id).unwrap_or(&0);
+        self.balances.insert(account_id, bal + amount.0);
         self.total_supply += amount.0;
     }
 
-    #[private]
-    pub fn migrate(&mut self) {}
+    #[payable]
+    pub fn storage_deposit(&mut self, account_id: Option<AccountId>) -> StorageBalance {
+        let account = account_id.unwrap_or_else(|| env::predecessor_account_id());
+        if self.balances.get(&account).is_none() {
+            self.balances.insert(account, 0);
+        }
+        StorageBalance { total: U128(1), available: U128(1) }
+    }
 
-    fn internal_transfer(&mut self, sender_id: &AccountId, receiver_id: &AccountId, amount: u128) {
-        assert_ne!(sender_id, receiver_id, "Cannot transfer to self");
-        assert!(amount > 0, "Amount must be greater than zero");
-        let sender_balance = self.accounts.get(sender_id).copied().unwrap_or(0);
-        assert!(sender_balance >= amount, "Not enough balance");
-        self.accounts.insert(sender_id.clone(), sender_balance - amount);
-        let receiver_balance = self.accounts.get(receiver_id).copied().unwrap_or(0);
-        self.accounts.insert(receiver_id.clone(), receiver_balance + amount);
+    pub fn storage_balance_of(&self, account_id: AccountId) -> Option<StorageBalance> {
+        if self.balances.get(&account_id).is_some() {
+            Some(StorageBalance { total: U128(1), available: U128(1) })
+        } else { None }
+    }
+
+    pub fn burn_and_bridge(&mut self, amount: U128, monad_recipient: String) {
+        let caller = env::predecessor_account_id();
+        let bal = *self.balances.get(&caller).unwrap_or(&0);
+        assert!(bal >= amount.0, "Insufficient balance");
+        self.balances.insert(caller, bal - amount.0);
+        self.total_supply -= amount.0;
+        let bridge: AccountId = "monad-bridge.gemsrock-nft.near".parse().unwrap();
+        let args = format!(r#"{{"amount":"{}","monad_recipient":"{}"}}"#, amount.0, monad_recipient);
+        Promise::new(bridge).function_call(
+            "emit_bridge".to_string(),
+            args.into_bytes(),
+            NearToken::from_yoctonear(0),
+            Gas::from_tgas(10),
+        );
+    }
+
+    fn internal_transfer(&mut self, sender: &AccountId, receiver: &AccountId, amount: u128) {
+        assert!(amount > 0, "Amount must be > 0");
+        let sb = *self.balances.get(sender).unwrap_or(&0);
+        assert!(sb >= amount, "Insufficient balance");
+        self.balances.insert(sender.clone(), sb - amount);
+        let rb = *self.balances.get(receiver).unwrap_or(&0);
+        self.balances.insert(receiver.clone(), rb + amount);
     }
 }
