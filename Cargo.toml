@@ -5,10 +5,11 @@ edition = "2021"
 repository = "https://github.com/00impera/usdcc-token"
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib"]
 
 [dependencies]
 near-sdk = "=5.12.0"
+borsh = "=1.5.0"
 
 [profile.release]
 codegen-units = 1
